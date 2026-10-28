@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analizador y Sintetizador de Fourier Avanzado</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #0f172a;
+            color: #e2e8f0;
+            font-family: 'Inter', sans-serif;
+            /* Prevenir comportamientos de zoom raros al tocar controles repetidamente */
+            touch-action: manipulation;
+        }
+        canvas {
+            background-color: #000000;
+            border-radius: 0.5rem;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.8);
+            width: 100%;
+            display: block;
+            cursor: crosshair;
+        }
+        .control-panel {
+            background: linear-gradient(145deg, #1e293b, #0f172a);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+        }
+        input[type=range] {
+            accent-color: #38bdf8;
+        }
+        .btn-active {
+            background-color: #ef4444 !important;
+            box-shadow: 0 4px 15px rgba(239, 68, 68, 0.4) !important;
+        }
+        .scroll-container {
+            overflow: auto; 
+            border-radius: 0.5rem;
+            max-height: 350px; 
+            position: relative;
+        }
+        .scroll-container::-webkit-scrollbar {
+            height: 12px;
+            width: 12px;
+        }
+        .scroll-container::-webkit-scrollbar-track {
+            background: #1e293b;
+            border-radius: 0.5rem;
+        }
+        .scroll-container::-webkit-scrollbar-thumb {
+            background: #38bdf8;
+            border-radius: 6px;
+            border: 3px solid #1e293b;
+        }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8 flex flex-col items-center">
+
+    <div class="max-w-5xl w-full">
+        <header class="mb-6 text-center">
+            <h1 class="text-3xl font-bold text-sky-400 mb-2">Síntesis y Análisis de Fourier</h1>
+            <p class="text-slate-400">Generación aditiva, entrada de micrófono y análisis espectral calibrado</p>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Panel de Control -->
+            <div class="control-panel p-6 rounded-xl border border-slate-700 flex flex-col gap-5 lg:col-span-1">
+                
+                <!-- Controles de Estado -->
+                <div class="grid grid-cols-2 gap-3">
+                    <button id="btnPlay" class="bg-sky-500 hover:bg-sky-400 text-white font-semibold py-2 px-2 text-sm rounded transition shadow-lg shadow-sky-500/30">
+                        ▶ Reproducir
+                    </button>
+                    <button id="btnMute" class="bg-slate-600 hover:bg-slate-500 text-white font-semibold py-2 px-2 text-sm rounded transition shadow-lg shadow-slate-600/30" disabled>
+                        Mute
+                    </button>
+                    <button id="btnMic" class="bg-indigo-500 hover:bg-indigo-400 text-white font-semibold py-2 px-2 text-sm rounded transition shadow-lg shadow-indigo-500/30">
+                        🎤 Mic: OFF
+                    </button>
+                    <button id="btnFreeze" class="bg-emerald-500 hover:bg-emerald-400 text-white font-semibold py-2 px-2 text-sm rounded transition shadow-lg shadow-emerald-500/30">
+                        ❄ Congelar
+                    </button>
+                </div>
+
+                <!-- Tipo de Onda -->
+                <div>
+                    <label class="block text-sm font-medium text-slate-300 mb-2">Forma de Onda</label>
+                    <select id="waveType" class="w-full bg-slate-900 border border-slate-600 text-white text-sm rounded-lg focus:ring-sky-500 focus:border-sky-500 p-2.5 outline-none transition">
+                        <option value="square">Cuadrada</option>
+                        <option value="sawtooth">Diente de Sierra</option>
+                        <option value="triangle">Triangular</option>
+                    </select>
+                </div>
+
+                <!-- Frecuencia Fundamental -->
+                <div>
+                    <div class="flex justify-between items-center mb-2">
+                        <label class="text-sm font-medium text-slate-300">Frecuencia Base</label>
+                        <div class="flex items-center gap-2">
+                            <input id="freqNumber" type="number" min="50" max="5000" value="750" class="w-20 bg-slate-900 border border-slate-600 text-sky-400 text-sm font-bold text-center rounded focus:ring-sky-500 focus:border-sky-500 py-1 outline-none transition">
+                            <span class="text-sm font-bold text-sky-400">Hz</span>
+                        </div>
+                    </div>
+                    <input id="frequency" type="range" min="50" max="5000" value="750" class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer">
+                </div>
+
+                <!-- Volumen Maestro -->
+                <div>
+                    <div class="flex justify-between mb-2">
+                        <label class="text-sm font-medium text-slate-300">Volumen</label>
+                        <span id="volLabel" class="text-sm font-bold text-sky-400">30%</span>
+                    </div>
+                    <input id="volume" type="range" min="0" max="1" step="0.01" value="0.3" class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer">
+                </div>
+                
+                <!-- Zoom Y (Amplitud) para el Espectro -->
+                <div>
+                    <div class="flex justify-between mb-2">
+                        <label class="text-sm font-medium text-slate-300">Sensibilidad FFT (Zoom Y)</label>
+                        <span id="zoomYLabel" class="text-sm font-bold text-sky-400">-100 dB</span>
+                    </div>
+                    <input id="zoomY" type="range" min="-140" max="-40" step="5" value="-100" class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer">
+                </div>
+
+                <!-- Número de Términos -->
+                <div>
+                    <label class="block text-sm font-medium text-slate-300 mb-3">Armónicos a Sumar</label>
+                    <div class="flex flex-wrap gap-3">
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="radio" name="terms" value="3" class="w-4 h-4 text-sky-500 bg-slate-900 border-slate-600 focus:ring-sky-500 focus:ring-2">
+                            <span class="text-sm">3</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="radio" name="terms" value="5" class="w-4 h-4 text-sky-500 bg-slate-900 border-slate-600 focus:ring-sky-500 focus:ring-2" checked>
+                            <span class="text-sm">5</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="radio" name="terms" value="10" class="w-4 h-4 text-sky-500 bg-slate-900 border-slate-600 focus:ring-sky-500 focus:ring-2">
+                            <span class="text-sm">10</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="radio" name="terms" value="15" class="w-4 h-4 text-sky-500 bg-slate-900 border-slate-600 focus:ring-sky-500 focus:ring-2">
+                            <span class="text-sm">15</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="radio" name="terms" value="20" class="w-4 h-4 text-sky-500 bg-slate-900 border-slate-600 focus:ring-sky-500 focus:ring-2">
+                            <span class="text-sm">20</span>
+                        </label>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Visualizadores -->
+            <div class="lg:col-span-2 flex flex-col gap-4 relative">
+                
+                <!-- Osciloscopio -->
+                <div class="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-lg">
+                    <h2 class="text-sm font-semibold text-slate-400 mb-2 uppercase tracking-wider flex justify-between">
+                        <span>Osciloscopio f(t)</span>
+                        <span id="scopeStatus" class="text-xs text-sky-400">Sintetizador</span>
+                    </h2>
+                    <canvas id="oscilloscope" height="200"></canvas>
+                </div>
+
+                <!-- Espectro Expandido con Scroll X e Y -->
+                <div class="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-lg relative">
+                    <h2 class="text-sm font-semibold text-slate-400 mb-2 uppercase tracking-wider flex justify-between items-center">
+                        <span>Analizador FFT F(ω)</span>
+                        <span class="text-xs text-sky-400 normal-case font-normal animate-pulse text-right hidden sm:block">↔ Desliza X/Y ↕</span>
+                    </h2>
+                    <!-- Contenedor scrollable -->
+                    <div id="scrollContainer" class="scroll-container w-full border border-slate-700 relative">
+                        <!-- Lienzo ampliado en ambas dimensiones -->
+                        <canvas id="spectrum" height="600" style="min-width: 2000px; min-height: 600px; width: 100%;"></canvas>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- Tooltip de frecuencia -->
+    <div id="freqTooltip" class="absolute hidden bg-slate-900 border border-sky-500 text-sky-400 text-xs px-2 py-1 rounded shadow-lg pointer-events-none z-50">
+        0 Hz
+    </div>
+
+    <script>
+        let audioCtx;
+        let masterGain;
+        let analyser;
+        
+        let micStream = null;
+        let micSource = null;
+        
+        let isPlaying = false;
+        let isMuted = false;
+        let isMicOn = false;
+        let isFrozen = false;
+        
+        // Búferes globales para que persistan al congelar y redimensionar
+        let timeData = null;
+        let freqData = null;
+        
+        const MAX_TERMS = 20;
+        const oscillators = [];
+        const gains = [];
+
+        const btnPlay = document.getElementById('btnPlay');
+        const btnMute = document.getElementById('btnMute');
+        const btnMic = document.getElementById('btnMic');
+        const btnFreeze = document.getElementById('btnFreeze');
+        
+        const freqSlider = document.getElementById('frequency');
+        const freqNumber = document.getElementById('freqNumber');
+        const volSlider = document.getElementById('volume');
+        const volLabel = document.getElementById('volLabel');
+        const zoomYSlider = document.getElementById('zoomY');
+        const zoomYLabel = document.getElementById('zoomYLabel');
+        const waveTypeSelect = document.getElementById('waveType');
+        const termsRadios = document.querySelectorAll('input[name="terms"]');
+        const scopeStatus = document.getElementById('scopeStatus');
+        
+        const canvasOsc = document.getElementById('oscilloscope');
+        const ctxOsc = canvasOsc.getContext('2d');
+        const canvasSpec = document.getElementById('spectrum');
+        const ctxSpec = canvasSpec.getContext('2d');
+        const scrollContainer = document.getElementById('scrollContainer');
+        const freqTooltip = document.getElementById('freqTooltip');
+
+        function resizeCanvas() {
+            canvasOsc.width = canvasOsc.clientWidth;
+            canvasSpec.width = Math.max(canvasSpec.parentElement.clientWidth, 2000);
+            // Ya no dejamos de dibujar al hacer resize, el bucle requestAnimationFrame se encarga de rellenarlo.
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+        
+        scrollContainer.scrollTop = scrollContainer.scrollHeight;
+
+        function initAudio() {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            analyser = audioCtx.createAnalyser();
+            analyser.fftSize = 4096; 
+            analyser.minDecibels = parseFloat(zoomYSlider.value);
+            analyser.maxDecibels = -10; 
+            
+            // Inicializar búferes globales para evitar pantallazos negros
+            timeData = new Uint8Array(analyser.frequencyBinCount);
+            freqData = new Uint8Array(analyser.frequencyBinCount);
+            
+            masterGain = audioCtx.createGain();
+            masterGain.gain.value = parseFloat(volSlider.value);
+            
+            masterGain.connect(analyser);
+            analyser.connect(audioCtx.destination);
+
+            for (let i = 0; i < MAX_TERMS; i++) {
+                let osc = audioCtx.createOscillator();
+                let gain = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.value = 0;
+                gain.gain.value = 0;
+                osc.connect(gain);
+                gain.connect(masterGain);
+                osc.start();
+                oscillators.push(osc);
+                gains.push(gain);
+            }
+        }
+
+        function updateSynthesizer() {
+            if (!isPlaying) return;
+
+            const type = waveTypeSelect.value;
+            const f0 = parseFloat(freqNumber.value);
+            const numTerms = parseInt(document.querySelector('input[name="terms"]:checked').value);
+            
+            for (let k = 1; k <= MAX_TERMS; k++) {
+                const osc = oscillators[k-1];
+                const gainNode = gains[k-1];
+                
+                if (k <= numTerms) {
+                    let h, amp;
+                    if (type === 'square') {
+                        h = 2 * k - 1;
+                        amp = 1 / h;
+                    } else if (type === 'triangle') {
+                        h = 2 * k - 1;
+                        amp = (k % 2 === 0 ? -1 : 1) / (h * h);
+                    } else if (type === 'sawtooth') {
+                        h = k;
+                        amp = (k % 2 === 0 ? -1 : 1) / h;
+                    }
+
+                    let harmonicFreq = h * f0;
+                    if (harmonicFreq > audioCtx.sampleRate / 2) {
+                        amp = 0;
+                    }
+
+                    osc.frequency.setTargetAtTime(harmonicFreq, audioCtx.currentTime, 0.05);
+                    gainNode.gain.setTargetAtTime(amp, audioCtx.currentTime, 0.05);
+                } else {
+                    gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.05);
+                }
+            }
+        }
+        
+        function stopSynth() {
+            if (!isPlaying) return;
+            isPlaying = false;
+            
+            if (audioCtx) {
+                for (let k = 0; k < MAX_TERMS; k++) {
+                    gains[k].gain.setTargetAtTime(0, audioCtx.currentTime, 0.05);
+                }
+            }
+            
+            btnPlay.innerText = "▶ Reproducir";
+            btnPlay.classList.replace('bg-emerald-500', 'bg-sky-500');
+        }
+
+        btnPlay.addEventListener('click', () => {
+            if (!audioCtx) { initAudio(); drawVisualizers(); }
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            
+            isPlaying = true;
+            btnPlay.innerText = "▶ Sintetizando";
+            btnPlay.classList.replace('bg-sky-500', 'bg-emerald-500');
+            btnMute.disabled = false;
+            updateSynthesizer();
+        });
+
+        btnMute.addEventListener('click', () => {
+            isMuted = !isMuted;
+            if (isMuted) {
+                masterGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.05);
+                btnMute.innerText = "Unmute";
+                btnMute.classList.add('btn-active');
+            } else {
+                masterGain.gain.setTargetAtTime(parseFloat(volSlider.value), audioCtx.currentTime, 0.05);
+                btnMute.innerText = "Mute";
+                btnMute.classList.remove('btn-active');
+            }
+        });
+
+        btnMic.addEventListener('click', async () => {
+            if (!audioCtx) { initAudio(); drawVisualizers(); }
+            
+            if (!isMicOn) {
+                try {
+                    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    micSource = audioCtx.createMediaStreamSource(micStream);
+                    
+                    masterGain.disconnect(analyser);
+                    micSource.connect(analyser);
+                    
+                    isMicOn = true;
+                    btnMic.innerText = "🎤 Mic: ON";
+                    btnMic.classList.add('btn-active');
+                    scopeStatus.innerText = "Micrófono Externo";
+                    scopeStatus.classList.replace('text-sky-400', 'text-red-400');
+                } catch (e) {
+                    alert("Error al acceder al micrófono. Por favor permite el acceso.");
+                }
+            } else {
+                if(micStream) micStream.getTracks().forEach(track => track.stop());
+                if(micSource) micSource.disconnect();
+                
+                masterGain.connect(analyser);
+                
+                isMicOn = false;
+                btnMic.innerText = "🎤 Mic: OFF";
+                btnMic.classList.remove('btn-active');
+                scopeStatus.innerText = "Sintetizador";
+                scopeStatus.classList.replace('text-red-400', 'text-sky-400');
+            }
+        });
+
+        btnFreeze.addEventListener('click', () => {
+            isFrozen = !isFrozen;
+            if(isFrozen) {
+                btnFreeze.innerText = "▶ Reanudar Visor";
+                btnFreeze.classList.replace('bg-emerald-500', 'bg-amber-500');
+            } else {
+                btnFreeze.innerText = "❄ Congelar";
+                btnFreeze.classList.replace('bg-amber-500', 'bg-emerald-500');
+            }
+        });
+
+        volSlider.addEventListener('input', (e) => {
+            let val = parseFloat(e.target.value);
+            volLabel.innerText = Math.round(val * 100) + '%';
+            if (!isMuted && audioCtx) {
+                masterGain.gain.setTargetAtTime(val, audioCtx.currentTime, 0.05);
+            }
+        });
+        
+        zoomYSlider.addEventListener('input', (e) => {
+            let val = parseFloat(e.target.value);
+            zoomYLabel.innerText = val + ' dB';
+            if (analyser) {
+                analyser.minDecibels = val;
+            }
+        });
+
+        freqSlider.addEventListener('input', (e) => {
+            freqNumber.value = e.target.value;
+            stopSynth();
+        });
+
+        freqNumber.addEventListener('input', (e) => {
+            let val = parseFloat(e.target.value);
+            if(val >= 50 && val <= 5000) {
+                freqSlider.value = val;
+            }
+            stopSynth();
+        });
+
+        waveTypeSelect.addEventListener('change', updateSynthesizer);
+        termsRadios.forEach(radio => radio.addEventListener('change', updateSynthesizer));
+
+        // Lógica unificada para Tooltip (Mouse y Táctil)
+        function handleTooltip(e) {
+            if (!audioCtx) return;
+            
+            // Prevenir scroll en tactil solo si se desliza horizontal
+            if(e.type === 'touchmove') {
+                // e.preventDefault();
+            }
+
+            const rect = canvasSpec.getBoundingClientRect();
+            
+            // Soporte táctil o ratón
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const pageX = e.touches ? e.touches[0].pageX : e.pageX;
+            const pageY = e.touches ? e.touches[0].pageY : e.pageY;
+
+            const x = (clientX - rect.left) + scrollContainer.scrollLeft;
+            
+            if (x < 45) {
+                freqTooltip.classList.add('hidden');
+                return;
+            }
+
+            const bufferLength = analyser.frequencyBinCount;
+            const nyquist = audioCtx.sampleRate / 2;
+            const maxDisplayBins = Math.floor(bufferLength * 0.85); 
+            const maxFreqDisplayed = nyquist * (maxDisplayBins / bufferLength);
+            
+            const percentX = (x - 45) / (canvasSpec.width - 45);
+            
+            if (percentX > 1) {
+                freqTooltip.classList.add('hidden');
+                return;
+            }
+
+            const freq = percentX * maxFreqDisplayed;
+            
+            freqTooltip.innerHTML = `<strong>${Math.round(freq)} Hz</strong>`;
+            freqTooltip.style.left = (pageX + 15) + 'px';
+            freqTooltip.style.top = (pageY + 15) + 'px';
+            freqTooltip.classList.remove('hidden');
+        }
+
+        function hideTooltip() {
+            freqTooltip.classList.add('hidden');
+        }
+
+        canvasSpec.addEventListener('mousemove', handleTooltip);
+        canvasSpec.addEventListener('mouseleave', hideTooltip);
+        
+        // Eventos táctiles para móviles
+        canvasSpec.addEventListener('touchstart', handleTooltip, {passive: true});
+        canvasSpec.addEventListener('touchmove', handleTooltip, {passive: true});
+        canvasSpec.addEventListener('touchend', hideTooltip);
+
+        function drawVisualizers() {
+            requestAnimationFrame(drawVisualizers);
+            
+            if (!analyser || !timeData || !freqData) return;
+
+            // FIX: Si está congelado, NO se detiene la función, simplemente no actualiza los arrays de datos.
+            // Esto permite que el canvas se redibuje con la información congelada si el usuario hace zoom.
+            if (!isFrozen) {
+                analyser.getByteTimeDomainData(timeData);
+                analyser.getByteFrequencyData(freqData);
+            }
+
+            const bufferLength = analyser.frequencyBinCount;
+
+            // --- 1. Osciloscopio ---
+            ctxOsc.fillStyle = '#0f172a';
+            ctxOsc.fillRect(0, 0, canvasOsc.width, canvasOsc.height);
+            
+            ctxOsc.strokeStyle = '#1e293b';
+            ctxOsc.lineWidth = 1;
+            for(let i=0; i<canvasOsc.width; i+=40) { ctxOsc.beginPath(); ctxOsc.moveTo(i,0); ctxOsc.lineTo(i,canvasOsc.height); ctxOsc.stroke(); }
+            for(let i=0; i<canvasOsc.height; i+=40) { ctxOsc.beginPath(); ctxOsc.moveTo(0,i); ctxOsc.lineTo(canvasOsc.width,i); ctxOsc.stroke(); }
+
+            ctxOsc.lineWidth = 2;
+            ctxOsc.strokeStyle = isMicOn ? '#ef4444' : '#38bdf8'; 
+            ctxOsc.beginPath();
+
+            let start = 0;
+            for (let i = 0; i < bufferLength - 1; i++) {
+                if (timeData[i] < 128 && timeData[i + 1] >= 128) {
+                    start = i; break;
+                }
+            }
+
+            const sliceWidth = canvasOsc.width / (bufferLength / 4); 
+            let x = 0;
+            for (let i = start; i < bufferLength && x < canvasOsc.width; i++) {
+                const v = timeData[i] / 128.0;
+                const y = v * (canvasOsc.height / 2);
+                if (i === start) ctxOsc.moveTo(x, y);
+                else ctxOsc.lineTo(x, y);
+                x += sliceWidth;
+            }
+            ctxOsc.stroke();
+
+
+            // --- 2. Espectro FFT ---
+            ctxSpec.fillStyle = '#0f172a';
+            ctxSpec.fillRect(0, 0, canvasSpec.width, canvasSpec.height);
+            
+            const minDb = analyser.minDecibels; 
+            const maxDb = analyser.maxDecibels; 
+            const drawHeight = canvasSpec.height - 30; 
+            const scrollLeft = scrollContainer.scrollLeft;
+            const scrollTop = scrollContainer.scrollTop;
+            
+            ctxSpec.textAlign = 'right';
+            ctxSpec.font = '11px Inter';
+            
+            for (let db = Math.floor(maxDb/10)*10; db >= minDb; db -= 10) {
+                let y = drawHeight * (maxDb - db) / (maxDb - minDb);
+                ctxSpec.beginPath();
+                ctxSpec.moveTo(45, y);
+                ctxSpec.lineTo(canvasSpec.width, y);
+                ctxSpec.strokeStyle = '#1e293b';
+                ctxSpec.lineWidth = 1;
+                ctxSpec.stroke();
+            }
+
+            const nyquist = audioCtx.sampleRate / 2;
+            const maxDisplayBins = Math.floor(bufferLength * 0.85);
+            const maxFreqDisplayed = nyquist * (maxDisplayBins / bufferLength);
+            
+            ctxSpec.textAlign = 'center';
+            const stepFreq = 500; 
+            const viewBottom = scrollTop + scrollContainer.clientHeight;
+            const textY_Xaxis = Math.min(canvasSpec.height - 10, viewBottom - 10);
+            
+            for (let f = 0; f <= maxFreqDisplayed; f += stepFreq) {
+                let pX = 45 + (f / maxFreqDisplayed) * (canvasSpec.width - 45);
+                
+                ctxSpec.beginPath(); 
+                ctxSpec.strokeStyle = (f % 1000 === 0) ? '#334155' : '#1e293b';
+                ctxSpec.moveTo(pX, 0); 
+                ctxSpec.lineTo(pX, canvasSpec.height - 30); 
+                ctxSpec.stroke();
+
+                if (f % 1000 === 0) {
+                    ctxSpec.fillStyle = '#94a3b8';
+                    ctxSpec.fillText(f + ' Hz', pX, textY_Xaxis);
+                }
+            }
+
+            const binWidth = (canvasSpec.width - 45) / maxDisplayBins;
+            let currentX = 45;
+
+            for (let i = 0; i < maxDisplayBins; i++) {
+                const val = freqData[i];
+                const percent = val / 255;
+                const height = percent * drawHeight; 
+                const y = drawHeight - height;
+                
+                const r = 255;
+                const g = Math.floor(255 * (1 - percent));
+                const b = 0;
+
+                ctxSpec.fillStyle = `rgb(${r},${g},${b})`;
+                ctxSpec.fillRect(currentX, y, Math.max(1, binWidth - 0.2), height);
+                
+                currentX += binWidth;
+            }
+
+            ctxSpec.fillStyle = '#0f172a';
+            ctxSpec.fillRect(scrollLeft, 0, 45, canvasSpec.height); 
+            
+            ctxSpec.textAlign = 'right';
+            ctxSpec.fillStyle = '#94a3b8';
+            for (let db = Math.floor(maxDb/10)*10; db >= minDb; db -= 10) {
+                let y = drawHeight * (maxDb - db) / (maxDb - minDb);
+                let textY = Math.max(12, y + 4); 
+                ctxSpec.fillText(db + ' dB', scrollLeft + 38, textY);
+            }
+        }
+    </script>
+</body>
+</html>
